@@ -25,4 +25,4 @@
     (slack/run-forever (:websocket-url res)
                        (:my-user-id res)))
 
-    (shutdown-agents))
+    #_(shutdown-agents))

@@ -26,7 +26,14 @@
 
 (defn run-forever
   [websocket-url my-user-id]
-  (let [conn @(http-ws/websocket-client websocket-url)]
-    (while true
-      (let [msg @(ms/take! conn)]
-        (println "GOT MSG" msg)))))
+  (let [conn @(http-ws/websocket-client websocket-url)
+        msg (atom true)]
+    #_(while (not (nil? msg))
+      (let [new-msg @(ms/take! conn ::drained)]
+        (reset! msg new-msg)
+        (println "GOT MSG" new-msg (ms/closed? conn))))
+
+    #_(println "exiting...")
+    (ms/consume #(println "GOT NEW MSG" %) conn)
+    (ms/on-closed conn #(println "CLOSED STREAM"))
+    ))
