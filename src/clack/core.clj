@@ -22,5 +22,7 @@
     (println "Got rev" rev user))
 
   (let [res @(slack/get-initial-config (:slack-api-token config))]
-    (println res))
+    (slack/run-forever (:websocket-url res)
+                       (:my-user-id res)))
+
     (shutdown-agents))
