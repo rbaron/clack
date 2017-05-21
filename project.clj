@@ -1,4 +1,4 @@
-(defproject clack "0.1.0-SNAPSHOT"
+(defproject clack "0.1.0"
   :description "Simple Phabricator bot for Slack"
   :url "https://rbaron.net/slackie"
   :license {:name "MIT"}

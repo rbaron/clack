@@ -16,6 +16,12 @@
   [msg]
   (json/read-str msg))
 
+(defn- setup-keepalive [conn]
+  (let [callback (fn [] (ms/put! conn "{\"type\": \"ping\"}"))]
+    (future (while true (do
+      (Thread/sleep 10000)
+      (callback))))))
+
 (defn get-initial-config
   [slack-api-token]
   (future
@@ -34,6 +40,7 @@
         (println "GOT MSG" new-msg (ms/closed? conn))))
 
     #_(println "exiting...")
+    (setup-keepalive conn)
     (ms/consume #(println "GOT NEW MSG" %) conn)
     (ms/on-closed conn #(println "CLOSED STREAM"))
     ))
