@@ -21,8 +21,11 @@
                              (:author-id rev))]
     (println "Got rev" rev user))
 
-  (let [res @(slack/get-initial-config (:slack-api-token config))]
-    (slack/run-forever (:websocket-url res)
-                       (:my-user-id res)))
+  #_(let [res @(slack/get-initial-config (:slack-api-token config))]
+    (slack/setup-stream-consumer (:websocket-url res)
+                                 (:my-user-id res)))
+
+  #_(slack/run-forever-2 "ws://localhost:8080")
+  (slack/run-forever (:slack-api-token config))
 
     #_(shutdown-agents))

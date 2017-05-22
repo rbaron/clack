@@ -16,11 +16,16 @@
   [msg]
   (json/read-str msg))
 
-(defn- setup-keepalive [conn]
-  (let [callback (fn [] (ms/put! conn "{\"type\": \"ping\"}"))]
-    (future (while true (do
+(defn- setup-keepalive [conn running]
+  (future
+    (while @running (do
       (Thread/sleep 10000)
-      (callback))))))
+      (try
+        (do (println "Keepalive thread. closed?" (ms/closed? conn))
+            (ms/put! conn "{\"type\": \"ping\"}"))
+        (catch Exception e
+          (println "Exception on keepalive thread" e)))
+    (println "Exiting keepalive thread")))))
 
 (defn get-initial-config
   [slack-api-token]
@@ -28,19 +33,44 @@
     (let [opts {:query-params {:token slack-api-token}}
           url (str SLACK_API_URL "/rtm.connect")
           {:keys [status body error]} @(http/get url opts)]
-      (parse-initial-config body))))
+      (if error
+        (throw (Exception. "Error" error))
+        (parse-initial-config body)))))
+
+(defn setup-stream-consumer
+  [websocket-url my-user-id running]
+  (try
+    (let [conn @(http-ws/websocket-client websocket-url)
+          keepalive (setup-keepalive conn running)]
+      (ms/consume #(println "GOT NEW MSG" %) conn)
+      (ms/on-closed conn #(do
+        (println "CLOSED STREAM")
+        (reset! running false))))
+    (catch Exception e
+      (reset! running false))))
+
+(declare reset-watcher)
+
+(defn run-forever-2
+  [websocket-url]
+  (let [running (atom true)]
+    (add-watch running websocket-url reset-watcher)
+    (setup-stream-consumer websocket-url "user-id" running)))
 
 (defn run-forever
-  [websocket-url my-user-id]
-  (let [conn @(http-ws/websocket-client websocket-url)
-        msg (atom true)]
-    #_(while (not (nil? msg))
-      (let [new-msg @(ms/take! conn ::drained)]
-        (reset! msg new-msg)
-        (println "GOT MSG" new-msg (ms/closed? conn))))
+  [slack-api-token]
+  (println "Initializing with api key" slack-api-token)
+  (let [running (atom true)]
+    (add-watch running slack-api-token reset-watcher)
+    (try
+      (let [config @(get-initial-config slack-api-token)
+            {:keys [websocket-url my-user-id]} config]
+        (setup-stream-consumer websocket-url my-user-id running))
+      (catch Exception e
+        (reset! running false)))))
 
-    #_(println "exiting...")
-    (setup-keepalive conn)
-    (ms/consume #(println "GOT NEW MSG" %) conn)
-    (ms/on-closed conn #(println "CLOSED STREAM"))
-    ))
+(defn reset-watcher
+  [key running old-state new-state]
+  (println "Connection reseted. Sleeping before reconnecting...")
+  (Thread/sleep 5000)
+  (run-forever key))
