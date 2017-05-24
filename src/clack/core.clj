@@ -19,7 +19,7 @@
     (if-let [msg (async/<! in-msg-chan)]
       (do
         (println "Got new message" msg)
-        (async/>! out-msg-chan {:type :message})
+        ;(async/>! out-msg-chan {:type :message})
         (recur))
       (println "Exiting main handler"))))
 
@@ -40,6 +40,8 @@
 
   #_(slack/run-forever-2 "ws://localhost:8080")
   #_(slack/run-forever (:slack-api-token config))
-  (slack/run-forever "ws://localhost:8080" handler)
+  #_(slack/run-forever "ws://localhost:8080" handler)
+  #_(slack/run-forever "ws://localhost:8080" handler)
+  (slack/run-forever (:slack-api-token config) handler)
 
     #_(shutdown-agents))
