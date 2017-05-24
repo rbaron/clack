@@ -1,6 +1,7 @@
 (ns clack.slack
   (:require [aleph.http :as http-ws]
             [clojure.data.json :as json]
+            [clojure.core.async :as async]
             [manifold.stream :as ms]
             [org.httpkit.client :as http]))
 
@@ -12,22 +13,7 @@
     {:my-user-id (get-in data ["self" "id"])
      :websocket-url (data "url")}))
 
-(defn- parse-message
-  [msg]
-  (json/read-str msg))
-
-(defn- setup-keepalive [conn running]
-  (future
-    (while @running (do
-      (Thread/sleep 10000)
-      (try
-        (do (println "Keepalive thread. closed?" (ms/closed? conn))
-            (ms/put! conn "{\"type\": \"ping\"}"))
-        (catch Exception e
-          (println "Exception on keepalive thread" e)))
-    (println "Exiting keepalive thread")))))
-
-(defn get-initial-config
+(defn- get-initial-config
   [slack-api-token]
   (future
     (let [opts {:query-params {:token slack-api-token}}
@@ -37,40 +23,58 @@
         (throw (Exception. "Error" error))
         (parse-initial-config body)))))
 
-(defn setup-stream-consumer
-  [websocket-url my-user-id running]
-  (try
-    (let [conn @(http-ws/websocket-client websocket-url)
-          keepalive (setup-keepalive conn running)]
-      (ms/consume #(println "GOT NEW MSG" %) conn)
-      (ms/on-closed conn #(do
-        (println "CLOSED STREAM")
-        (reset! running false))))
-    (catch Exception e
-      (reset! running false))))
+(defn- async-keepalive-loop
+  [conn msg-chan]
+  (async/go-loop []
+    (let [[v ch] (async/alts!! [msg-chan (async/timeout 1000)])]
+      #_(println "Keepalive thread got val" v "from channel" ch)
+      (if (not= v :kill-self)
+        (do (ms/put! conn "{\"type\": \"ping\"}")
+            (recur))
+        (println "Keepalive thread is exiting...")))))
 
-(declare reset-watcher)
+(defn- async-output-loop
+  [conn out-msg-chan]
+  (async/go-loop []
+    (if-let [msg (async/<! out-msg-chan)]
+      (do (ms/put! conn (json/write-str msg))
+          (recur))
+      (println "Exiting async output loop"))))
 
-(defn run-forever-2
+(defn- connect
   [websocket-url]
-  (let [running (atom true)]
-    (add-watch running websocket-url reset-watcher)
-    (setup-stream-consumer websocket-url "user-id" running)))
+  (try
+    @(http-ws/websocket-client websocket-url)
+    (catch java.net.ConnectException e
+      nil)))
+
+(defn- make-consumer
+  [in-msg-chan]
+  (fn [msg]
+    (let [json-msg (json/read-str msg :keyword-fn keyword)]
+      (async/go (async/>! in-msg-chan json-msg)))))
 
 (defn run-forever
-  [slack-api-token]
-  (println "Initializing with api key" slack-api-token)
-  (let [running (atom true)]
-    (add-watch running slack-api-token reset-watcher)
-    (try
-      (let [config @(get-initial-config slack-api-token)
-            {:keys [websocket-url my-user-id]} config]
-        (setup-stream-consumer websocket-url my-user-id running))
-      (catch Exception e
-        (reset! running false)))))
-
-(defn reset-watcher
-  [key running old-state new-state]
-  (println "Connection reseted. Sleeping before reconnecting...")
-  (Thread/sleep 5000)
-  (run-forever key))
+  [websocket-url handler & {:as options}]
+  (println "Will run forever...")
+  (if-let [conn (connect websocket-url)]
+    (let [keepalive-msg-chan (async/chan)
+          block-chan (async/chan)
+          in-msg-chan (async/chan)
+          out-msg-chan (async/chan)]
+      (do (async-keepalive-loop conn keepalive-msg-chan)
+          (async-output-loop conn out-msg-chan)
+          (handler in-msg-chan out-msg-chan)
+          (ms/consume (make-consumer in-msg-chan) conn)
+          (ms/on-closed conn #(do (println "CLOSED STREAM")
+                                  (async/>!! keepalive-msg-chan :kill-self)
+                                  (async/close! in-msg-chan)
+                                  (async/close! out-msg-chan)
+                                  (async/close! block-chan)
+                                  (async/close! keepalive-msg-chan)))
+          (println "Running until it's not...")
+          (async/<!! block-chan)
+          (recur websocket-url handler)))
+      (do (println "Could not connect to websocket. Sleeping before retrying...")
+          (Thread/sleep 5000)
+          (recur websocket-url handler))))

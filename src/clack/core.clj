@@ -1,5 +1,6 @@
 (ns clack.core
   (:require [environ.core :refer [env]]
+            [clojure.core.async :as async]
             [clack.phabricator :as phab]
             [clack.slack :as slack])
   (:gen-class))
@@ -9,6 +10,18 @@
   :phabricator-api-token (env :phabricator-api-token)
   :slack-api-token (env :slack-api-token)
 })
+
+(defn handler
+  [in-msg-chan out-msg-chan]
+  (async/go-loop
+    []
+    ; While channel is open
+    (if-let [msg (async/<! in-msg-chan)]
+      (do
+        (println "Got new message" msg)
+        (async/>! out-msg-chan {:type :message})
+        (recur))
+      (println "Exiting main handler"))))
 
 (defn -main
   [& args]
@@ -26,6 +39,7 @@
                                  (:my-user-id res)))
 
   #_(slack/run-forever-2 "ws://localhost:8080")
-  (slack/run-forever (:slack-api-token config))
+  #_(slack/run-forever (:slack-api-token config))
+  (slack/run-forever "ws://localhost:8080" handler)
 
     #_(shutdown-agents))
