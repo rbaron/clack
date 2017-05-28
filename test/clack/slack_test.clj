@@ -158,7 +158,6 @@
           (is (= (res) "retry-return-value"))
           (is (= (mock-setup-channels-and-wait 'get-call-count) 0))))))))
 
-
 (deftest setup-channels-and-wait-test
   (testing "Unblocks thread when stream is closed"
     (letfn [(handler [in-chan out-chan] nil)]
