@@ -38,10 +38,11 @@
     (slack/setup-stream-consumer (:websocket-url res)
                                  (:my-user-id res)))
 
+  (println "hello")
   #_(slack/run-forever-2 "ws://localhost:8080")
   #_(slack/run-forever (:slack-api-token config))
   #_(slack/run-forever "ws://localhost:8080" handler)
   #_(slack/run-forever "ws://localhost:8080" handler)
-  (slack/run-forever (:slack-api-token config) handler)
+  (slack/start (:slack-api-token config) handler {})
 
     #_(shutdown-agents))

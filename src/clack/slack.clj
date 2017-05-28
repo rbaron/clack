@@ -9,26 +9,24 @@
 
 (defn- parse-initial-config
   [body]
-  (println "GOT CONFIG" body)
   (let [data (json/read-str body)]
     {:my-user-id (get-in data ["self" "id"])
      :websocket-url (data "url")}))
 
-(defn- get-initial-config
+(defn get-initial-config
   [slack-api-token]
   (future
     (let [opts {:query-params {:token slack-api-token}}
           url (str SLACK_API_URL "/rtm.connect")
           {:keys [status body error]} @(http/get url opts)]
       (if error
-        (throw (Exception. "Error" error))
+        nil
         (parse-initial-config body)))))
 
 (defn- async-keepalive-loop
   [conn msg-chan]
   (async/go-loop []
     (let [[v ch] (async/alts!! [msg-chan (async/timeout 10000)])]
-      #_(println "Keepalive thread got val" v "from channel" ch)
       (if (not= v :kill-self)
         (do (ms/put! conn "{\"type\": \"ping\"}")
             (recur))
@@ -42,7 +40,7 @@
           (recur))
       (println "Exiting async output loop"))))
 
-(defn- connect
+(defn connect
   [websocket-url]
   (try
     @(http-ws/websocket-client websocket-url)
@@ -55,61 +53,46 @@
     (let [json-msg (json/read-str msg :keyword-fn keyword)]
       (async/go (async/>! in-msg-chan json-msg)))))
 
-#_(defn run-forever2
-  [websocket-url handler & {:as options}]
-  (println "Will run forever...")
-  (if-let [conn (connect websocket-url)]
-    (let [keepalive-msg-chan (async/chan)
-          block-chan (async/chan)
-          in-msg-chan (async/chan)
-          out-msg-chan (async/chan)]
-      (do (async-keepalive-loop conn keepalive-msg-chan)
-          (async-output-loop conn out-msg-chan)
-          (handler in-msg-chan out-msg-chan)
-          (ms/consume (make-consumer in-msg-chan) conn)
-          (ms/on-closed conn #(do (println "CLOSED STREAM")
-                                  (async/>!! keepalive-msg-chan :kill-self)
-                                  (async/close! in-msg-chan)
-                                  (async/close! out-msg-chan)
-                                  (async/close! block-chan)
-                                  (async/close! keepalive-msg-chan)))
-          (println "Running until it's not...")
-          (async/<!! block-chan)
-          (recur websocket-url handler)))
-      (do (println "Could not connect to websocket. Sleeping before retrying...")
-          (Thread/sleep 5000)
-          (recur websocket-url handler))))
+(defn setup-channels-and-wait
+  [conn handler]
+  (let [keepalive-msg-chan (async/chan)
+        block-chan (async/chan)
+        in-msg-chan (async/chan)
+        out-msg-chan (async/chan)]
+    (do (async-keepalive-loop conn keepalive-msg-chan)
+        (async-output-loop conn out-msg-chan)
+        (handler in-msg-chan out-msg-chan)
+        (ms/consume (make-consumer in-msg-chan) conn)
+        (ms/on-closed conn #(do (println "CLOSED STREAM")
+                                (async/>!! keepalive-msg-chan :kill-self)
+                                (async/close! in-msg-chan)
+                                (async/close! out-msg-chan)
+                                (async/close! block-chan)
+                                (async/close! keepalive-msg-chan)))
+        (async/<!! block-chan))))
 
-;(defn- setup-channels
-;  [conn]
+(declare run-forever)
+
+(defn retry
+  [slack-api-token handler options message timeout]
+  (println message "Retrying in" timeout "ms...")
+  (Thread/sleep timeout)
+  #(run-forever slack-api-token handler options))
 
 (defn run-forever
-  [slack-api-token handler & {:as options}]
-  (println "Will run forever with opts:" options)
-  (if-let [config @(get-initial-config slack-api-token)]
-    (let [{:keys [websocket-url my-user-id]} config]
-      (println "Got initial config" config)
-      (if-let [conn (connect websocket-url)]
-        (let [keepalive-msg-chan (async/chan)
-              block-chan (async/chan)
-              in-msg-chan (async/chan)
-              out-msg-chan (async/chan)]
-          (do (async-keepalive-loop conn keepalive-msg-chan)
-              (async-output-loop conn out-msg-chan)
-              (handler in-msg-chan out-msg-chan)
-              (ms/consume (make-consumer in-msg-chan) conn)
-              (ms/on-closed conn #(do (println "CLOSED STREAM")
-                                      (async/>!! keepalive-msg-chan :kill-self)
-                                      (async/close! in-msg-chan)
-                                      (async/close! out-msg-chan)
-                                      (async/close! block-chan)
-                                      (async/close! keepalive-msg-chan)))
-              (println "Running until it's not...")
-              (async/<!! block-chan)
-              (recur slack-api-token handler options)))
-          (do (println "Could not connect to websocket. Sleeping before retrying...")
-              (Thread/sleep 5000)
-              (recur slack-api-token handler options))))
-      (do (println "Could not get initial config. Sleeping before retrying...")
-            (Thread/sleep 5000)
-            (recur slack-api-token handler options))))
+  [slack-api-token handler options]
+  (try
+    (if-let [config @(get-initial-config slack-api-token)]
+      (let [{:keys [websocket-url my-user-id]} config]
+        (println "Got initial config" config)
+        (if-let [conn (connect websocket-url)]
+          (do (setup-channels-and-wait conn handler)
+              #(retry slack-api-token handler options "Connection closed." 0))
+          #(retry slack-api-token handler options "Could not connect to websocket." 10000)))
+      #(retry slack-api-token handler options "Could not fetch initial config." 10000))
+    (catch java.io.IOException e
+      #(retry slack-api-token handler options (str "Error: " e) 10000))))
+
+(defn start
+  [slack-api-token handler options]
+  (trampoline run-forever slack-api-token handler options))
