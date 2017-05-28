@@ -1,4 +1,4 @@
-(ns clack.slack
+(ns clack.clack
   (:require [aleph.http :as http-ws]
             [clojure.data.json :as json]
             [clojure.core.async :as async]

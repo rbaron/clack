@@ -1,6 +1,6 @@
-(ns clack.slack-test
+(ns clack.clack-test
   (:require [clojure.test :refer :all]
-            [clack.slack :refer :all]
+            [clack.clack :refer :all]
             [clojure.data.json :as json]
             [aleph.http :as http-ws]
             [manifold.stream :as ms]

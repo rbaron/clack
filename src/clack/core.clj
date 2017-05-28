@@ -2,7 +2,7 @@
   (:require [environ.core :refer [env]]
             [clojure.core.async :as async]
             [clack.phabricator :as phab]
-            [clack.slack :as slack])
+            [clack.clack :as slack])
   (:gen-class))
 
 (def config {
