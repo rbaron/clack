@@ -6,17 +6,25 @@
 
 (clack/set-log-level! :info)
 
+(defn send-ack
+  [msg out-chan my-user-id]
+  (if (and (= (:type msg) "message")
+           (not= (:user my-user-id) my-user-id))
+    (async/>! out-chan {:type "message"
+                        :channel (:channel msg)
+                        :text "Ok!"})))
+
 (defn handler
-  [in-chan out-chan]
-  (async/go-loop
-    []
-    ; While channel is open
-    (if-let [msg (async/<! in-chan)]
-      (do
-        (println "Got new message" msg)
-        (recur))
-      (println "Exiting main handler"))))
+  [in-chan out-chan config]
+  (let [{:keys [my-user-id websocket-url]} config]
+    (async/go-loop
+      []
+      (if-let [msg (async/<! in-chan)]
+        (do
+          (send-ack msg out-chan my-user-id)
+          (recur))
+        (println "Channel is closed")))))
 
 (defn -main
   [& args]
-  (clack/start (env :slack-api-token) handler {:debug true}))
+  (clack/start (env :slack-api-token) handler))
