@@ -9,6 +9,7 @@
 
 (defn- parse-initial-config
   [body]
+  (println "GOT INITIAL CONFIG" body)
   (let [data (json/read-str body)]
     {:my-user-id (get-in data ["self" "id"])
      :websocket-url (data "url")}))

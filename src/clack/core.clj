@@ -6,8 +6,8 @@
   (:gen-class))
 
 (def config {
-  :phabricator-api-url (env :phabricator-api-url)
-  :phabricator-api-token (env :phabricator-api-token)
+  ;:phabricator-api-url (env :phabricator-api-url)
+  ;:phabricator-api-token (env :phabricator-api-token)
   :slack-api-token (env :slack-api-token)
 })
 

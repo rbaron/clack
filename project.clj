@@ -8,6 +8,6 @@
                  [aleph "0.4.3"]
                  [environ "1.1.0"]
                  [http-kit "2.2.0"]]
-  :main ^:skip-aot clack.core
+  :main ^:skip-aot clack.example
   :target-path "target/%s"
   :profiles {:uberjar {:aot :all}})
