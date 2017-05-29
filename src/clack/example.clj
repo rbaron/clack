@@ -4,6 +4,8 @@
             [environ.core :refer [env]])
   (:gen-class))
 
+(clack/set-log-level! :info)
+
 (defn handler
   [in-chan out-chan]
   (async/go-loop

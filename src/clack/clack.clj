@@ -3,13 +3,14 @@
             [clojure.data.json :as json]
             [clojure.core.async :as async]
             [manifold.stream :as ms]
-            [org.httpkit.client :as http]))
+            [org.httpkit.client :as http]
+            [taoensso.timbre :as timbre]))
 
 (def SLACK_API_URL "https://slack.com/api")
 
 (defn- parse-initial-config
   [body]
-  (println "GOT INITIAL CONFIG" body)
+  (timbre/debug "Got initial config: " body)
   (let [data (json/read-str body)]
     {:my-user-id (get-in data ["self" "id"])
      :websocket-url (data "url")}))
@@ -31,7 +32,7 @@
       (if (not= v :kill-self)
         (do (ms/put! conn "{\"type\": \"ping\"}")
             (recur))
-        (println "Keepalive thread is exiting...")))))
+        (timbre/debug "Keepalive thread is exiting...")))))
 
 (defn- async-output-loop
   [conn out-msg-chan]
@@ -39,7 +40,7 @@
     (if-let [msg (async/<! out-msg-chan)]
       (do (ms/put! conn (json/write-str msg))
           (recur))
-      (println "Exiting async output loop"))))
+      (timbre/debug "Exiting async output loop"))))
 
 (defn connect
   [websocket-url]
@@ -64,7 +65,7 @@
         (async-output-loop conn out-msg-chan)
         (handler in-msg-chan out-msg-chan)
         (ms/consume (make-consumer in-msg-chan) conn)
-        (ms/on-closed conn #(do (println "CLOSED STREAM")
+        (ms/on-closed conn #(do (timbre/debug "Closed stream")
                                 (async/>!! keepalive-msg-chan :kill-self)
                                 (async/close! in-msg-chan)
                                 (async/close! out-msg-chan)
@@ -76,7 +77,7 @@
 
 (defn retry
   [slack-api-token handler options message timeout]
-  (println message "Retrying in" timeout "ms...")
+  (timbre/info message "Retrying in" timeout "ms...")
   (Thread/sleep timeout)
   #(run-forever slack-api-token handler options))
 
@@ -85,9 +86,10 @@
   (try
     (if-let [config @(get-initial-config slack-api-token)]
       (let [{:keys [websocket-url my-user-id]} config]
-        (println "Got initial config" config)
+        (timbre/info "Got initial config")
         (if-let [conn (connect websocket-url)]
-          (do (setup-channels-and-wait conn handler)
+          (do (timbre/info "Connected to websocket")
+              (setup-channels-and-wait conn handler)
               #(retry slack-api-token handler options "Connection closed." 0))
           #(retry slack-api-token handler options "Could not connect to websocket." 10000)))
       #(retry slack-api-token handler options "Could not fetch initial config." 10000))
@@ -97,3 +99,8 @@
 (defn start
   [slack-api-token handler options]
   (trampoline run-forever slack-api-token handler options))
+
+(defn set-log-level!
+  "`level` is one of `#{:trace :debug :info :warn :error :fatal :report}`"
+  [level]
+  (timbre/set-level! level))
