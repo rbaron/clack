@@ -1,6 +1,6 @@
 (defproject clack "0.1.0"
-  :description "Simple Phabricator bot for Slack"
-  :url "https://rbaron.net/slackie"
+  :description "Simple bot framework for Slack"
+  :url "https://github.com/clack"
   :license {:name "MIT"}
   :dependencies [[org.clojure/clojure "1.8.0"]
                  [org.clojure/core.async "0.3.442"]
