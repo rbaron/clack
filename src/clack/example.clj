@@ -10,9 +10,9 @@
   [msg out-chan my-user-id]
   (if (and (= (:type msg) "message")
            (not= (:user my-user-id) my-user-id))
-    (async/>! out-chan {:type "message"
+    (async/go (async/>! out-chan {:type "message"
                         :channel (:channel msg)
-                        :text "Ok!"})))
+                        :text "Ok!"}))))
 
 (defn handler
   [in-chan out-chan config]
@@ -21,6 +21,7 @@
       []
       (if-let [msg (async/<! in-chan)]
         (do
+          (println "Got msg" msg)
           (send-ack msg out-chan my-user-id)
           (recur))
         (println "Channel is closed")))))
